@@ -1,0 +1,118 @@
+---
+title: "Final models for GitHub paper EPJ DS"
+output: html_notebook
+---
+
+Libraries
+
+```{r}
+#install.packages("rmarkdown")
+#library(rmarkdown)
+
+
+# for the cem package we need X windows
+#  https://dl.bintray.com/xquartz/downloads/XQuartz-2.7.11.dmg
+#  https://cran.r-project.org/bin/macosx/tools/tcltk-8.5.5-x11.pkg
+# terminal:  "xcode-select --install"
+
+util_libraries <- c("foreign", "reshape2", "stargazer", "arm", "plyr", "tidyverse", "stringr", "qdapRegex", "GGally", "progress", "pracma", "lubridate", "DescTools", "irr", "psych", 'gtools', "Hmisc", "colorspace","readxl",  "writexl")
+vis_libraries  <- c("ggplot2", "ggrepel", "grid", "gridExtra", "RColorBrewer", "scales", "corrplot", "ggeffects", "cowplot", "plot.matrix", "corrgram", "ggnetwork", "vioplot", "dotwhisker", "sjPlot", "sjlabelled", "sjmisc", "plot3D", "ggpubr", "ggExtra", "ggraph")
+stat_libraries <- c("network", "sna", "igraph", "moments", "nortest", "MASS", "randomForest", "sandwich", "lmtest", "gmodels", "margins", "sampleSelection", "pROC", "pscl",  "pwr", "relaimpo", "lme4", "plm", "caret", "ResourceSelection", "rvest", "cluster", "factoextra", "outliers", "acss", 'asbio','akima', 'plotly', 'factoextra', 'interactions', 'robustbase', "sandwich", "modelr", "broom", "mgcv", "stringdist", "sem", "lavaan", "corrr", "car")
+
+```
+
+```{r}
+#install.packages(util_libraries)
+#install.packages(vis_libraries)
+#install.packages(stat_libraries)
+```
+
+```{r}
+for (l in 1:length(util_libraries)){ library(util_libraries[l], character.only = TRUE)}
+for (l in 1:length(vis_libraries)){ library(vis_libraries[l], character.only = TRUE)}
+for (l in 1:length(stat_libraries)){ library(stat_libraries[l], character.only = TRUE)}
+```
+
+```{r}
+my_theme <-   theme(aspect.ratio=1, 
+        legend.position = "none",
+        #panel.grid.major = element_blank(), 
+        #panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                    fill=NA, 
+                                    linewidth=1),
+        #legend.position = c(0.2, 0.3),
+        plot.title = element_text(size = 11, face = "bold", colour = "black"),
+        axis.ticks = element_blank(),
+        #axis.ticks.minor.x = element_line(size=0.2),
+        axis.title.y = element_text(size = 11, colour = "black"),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_line(size=0.2),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.margin = unit(c(1,1,1,1), "points")
+  )
+```
+
+```{r, fig.width = 6, fig.height = 1.9}
+male_col <- "#008B00"
+female_col <- "#FFA500"
+
+d_h1=data.frame(s=c(0,0), ic=c(6,4), c=c(male_col, female_col))
+d_h2=data.frame(s=c(-.5,-.5), ic=c(7.22,6.78), c=c(male_col, female_col))
+d_h3=data.frame(s=c(-.5,-.5), ic=c(8.25,5.75), c=c(male_col, female_col))
+d_h4=data.frame(s=c(0,-.5), ic=c(6,5.75), c=c(male_col, female_col))
+
+h1 <- ggplot() +
+  geom_abline(data=d_h1, mapping=aes(slope=s, intercept=ic, color=c), linewidth=1.5)+
+  scale_x_continuous(name="Femaleness", limits=c(0,10), expand = c(0,0)) +
+  annotate(geom="text", x=.3, y=7, label="Males", color=male_col, hjust=0, size = 3.7, fontface = 1) +
+  annotate(geom="text", x=.3, y=3, label="Females", color=female_col, hjust=0,size = 3.7, fontface = 1) +
+  scale_y_continuous(name="Outcome", limits=c(0,10), expand = c(0,0)) +
+  scale_color_manual(values=c(male_col, female_col)) +
+  labs(title="H1:\nDirect")+
+  my_theme #+ 
+  #theme(plot.margin = unit(c(0,-10,-30,0), "points"))
+
+
+h2 <- ggplot() +
+  geom_abline(data=d_h2, mapping=aes(slope=s, intercept=ic, color=c), linewidth=1.5)+
+  scale_x_continuous(name="Femaleness", limits=c(0,10), expand = c(0,0)) +
+  scale_y_continuous(name="", limits=c(0,10), expand = c(0,0)) +
+  scale_color_manual(values=c(male_col, female_col)) +
+  labs(title="H2:\nBehavior-based")+
+  my_theme #+ 
+  #theme(plot.margin = unit(c(0,0,-30,-30), "points"))
+
+
+h3 <- ggplot() +
+  geom_abline(data=d_h3, mapping=aes(slope=s, intercept=ic, color=c), linewidth=1.5)+
+  scale_x_continuous(name="Femaleness", limits=c(0,10), expand = c(0,0)) +
+  scale_y_continuous(name="", limits=c(0,10), expand = c(0,0)) +
+  scale_color_manual(values=c(male_col, female_col)) +
+  labs(title="H3: Direct and\nBehavior-based")+
+  my_theme #+ 
+  #theme(plot.margin = unit(c(-10,-10,0,0), "points"))
+
+
+h4 <- ggplot() +
+  geom_abline(data=d_h4, mapping=aes(slope=s, intercept=ic, color=c), linewidth=1.5)+
+  scale_x_continuous(name="Femaleness", limits=c(0,10), expand = c(0,0)) +
+  scale_y_continuous(name="", limits=c(0,10), expand = c(0,0)) +
+  scale_color_manual(values=c(male_col, female_col)) +
+  labs(title="H4:\nDifferential")+
+  my_theme #+ 
+  #theme(plot.margin = unit(c(-10,0,0,-30), "points"))
+
+
+
+h_plots <- cowplot::plot_grid(h1,h2,h3,h4,  nrow = 1, ncol=4, align = "h", scale=1)
+  
+h_plots
+```
+
+```{r}
+ggsave("hypothesis_plots.pdf", h_plots, width = 6, height = 1.9)
+```

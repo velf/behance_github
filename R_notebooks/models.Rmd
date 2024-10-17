@@ -1,0 +1,2372 @@
+---
+title: "Final models for GitHub paper EPJ DS"
+output: html_notebook
+---
+
+Libraries
+```{r}
+#install.packages("rmarkdown")
+#library(rmarkdown)
+
+
+# for the cem package we need X windows
+#  https://dl.bintray.com/xquartz/downloads/XQuartz-2.7.11.dmg
+#  https://cran.r-project.org/bin/macosx/tools/tcltk-8.5.5-x11.pkg
+# terminal:  "xcode-select --install"
+
+util_libraries <- c("foreign", "reshape2", "stargazer", "arm", "plyr", "tidyverse", "stringr", "qdapRegex", "GGally", "progress", "pracma", "lubridate", "DescTools", "irr", "psych", 'gtools', "Hmisc", "colorspace","readxl",  "writexl")
+vis_libraries  <- c("ggplot2", "ggrepel", "grid", "gridExtra", "RColorBrewer", "scales", "corrplot", "ggeffects", "cowplot", "plot.matrix", "corrgram", "ggnetwork", "vioplot", "dotwhisker", "sjPlot", "sjlabelled", "sjmisc", "plot3D", "ggpubr", "ggExtra", "ggraph")
+stat_libraries <- c("network", "sna", "igraph", "moments", "nortest", "MASS", "randomForest", "sandwich", "lmtest", "gmodels", "sampleSelection", "pROC", "pscl",  "pwr", "relaimpo", "lme4", "plm", "caret", "ResourceSelection", "rvest", "cluster", "factoextra", "outliers", "acss", 'asbio','akima', 'plotly', 'factoextra', 'interactions', 'robustbase', "sandwich", "modelr", "broom", "mgcv", "stringdist", "sem", "lavaan", "corrr", "car")
+```
+
+```{r}
+#install.packages(util_libraries)
+#install.packages(vis_libraries)
+#install.packages(stat_libraries)
+```
+
+```{r}
+for (l in 1:length(util_libraries)){ library(util_libraries[l], character.only = TRUE)}
+for (l in 1:length(vis_libraries)){ library(vis_libraries[l], character.only = TRUE)}
+for (l in 1:length(stat_libraries)){ library(stat_libraries[l], character.only = TRUE)}
+```
+
+
+
+
+
+Clear
+```{r}
+rm(list=ls())
+```
+
+
+###Read data
+
+Read file
+```{r}
+#set path to the local machine
+get_path <- getwd()
+loc <- unlist(gregexpr(pattern ='/',get_path))[3] #locaiton of last '/' before "Dropbox"
+home_path <- substring(get_path, 1,loc) #path before "Dropbox"
+
+#open files
+github <-      read.csv(paste(home_path, 'Dropbox/behance-data/NEW_ANALYSIS/data/github/GitHUB_data_sample1_10_01_2021.csv'   , sep=""),header=T,na.strings=c(""))
+joindate <-    read.csv(paste(home_path, 'Dropbox/behance-data/NEW_ANALYSIS/data/github/users_with_date_creation2505.csv'     , sep=""),header=T,na.strings=c(""))
+joindate_u <-  read.csv(paste(home_path, 'Dropbox/behance-data/NEW_ANALYSIS/data/github/users_with_date_creation_unknowns.csv', sep=""),header=T,na.strings=c(""))
+l_freq <-      read.csv(paste(home_path, 'Dropbox/behance-data/NEW_ANALYSIS/data/github/users_sample_languages.csv'           , sep=""),header=T,na.strings=c(""))
+u_names <-     read.csv(paste(home_path, 'Dropbox/behance-data/NEW_ANALYSIS/data/github/asian_names.csv'                      , sep=""),header=T,na.strings=c(""))
+
+
+behance <- read.csv(paste(home_path, 'Dropbox/behance-data/NEW_ANALYSIS/data/behance/Behance_data_sample1_10_01_2021.csv'   , sep=""),header=T,na.strings=c(""))
+
+```
+
+
+
+
+```{r}
+head(github)
+var_list <- cbind(colnames(github))
+#var_list
+```
+
+
+
+###----------------
+###  Prepare data
+###----------------
+
+###Clean
+
+Year and tenure
+```{r}
+#year frequencies
+table(github$year) #watch out for number of zeros
+
+#substitute zero startyear by mean of non-zeros startyears
+mean(github$year[github$year!=0])
+github$year[github$year==0]<-round(mean(github$year[github$year!=0])) #calculate the mean without the zeros!
+github$year[github$year==2012] <- 2013
+table(github$year)
+github$tenure<-2016-github$year
+table(github$tenure)
+```
+
+###Variables coding
+
+Language frequencies to total audience
+```{r}
+#1. number of repos where the person used the language
+l_freq <- github[,c(19:41)]
+
+#2. number of people who used that language
+l_freq_table <- colSums((l_freq>1)*1)
+
+#3. multiply binary use by frequency
+l_exposure <- sweep(l_freq,MARGIN=2,l_freq_table,`*`)
+
+total_exposure <- rowSums(l_exposure)
+
+github$l_total_exposure <- total_exposure
+
+#log tranform
+github$log_l_total_exposure <- log10(github$l_total_exposure +1)
+
+
+```
+
+
+
+Binary success and logged variables
+```{r, fig.width = 3, fig.height = 3}
+# success binary
+github$success <- ifelse(github$successownrepos > 0, c(1), c(0)) 
+
+#logged vars
+github$log_success <- log10(github$successownrepos+1)
+github$followers_log<-log(github$followers+1)
+github$followf_log<-log(github$followf+1)
+github$followm_log<-log(github$followm+1)
+github$followu_log<-log(github$followu+1)
+github$gendercollaboratorsf_log<-log(github$gendercollaboratorsf+1)
+github$gendercollaboratorsm_log<-log(github$gendercollaboratorsm+1)
+github$gendercollaboratorsu_log<-log(github$gendercollaboratorsu+1)
+github$reposwhereactive_log<-log(github$reposwhereactive+1)
+github$pushes_log<-log(github$pushes+1)
+github$collaborators_log<-log(github$collaborators+1)
+github$collabs_per_repo<-github$collaborators/github$reposwhereactive
+github$pull_request_closed_log<-log(github$PRc+1)
+github$pull_request_opened_log<-log(github$PRo+1)
+github$pull_request_mereged_log<-log(github$PRm+1)
+github$n_repos_log<-log(github$n_repos+1)
+
+#name frequency normalized by gender frequency in millions
+github$log_name_count <- ifelse(
+                                github$gender_female == 1, 
+                                log10(github$name_count/0.194010),
+                                (ifelse(github$gender_male == 1,
+                                        log10(github$name_count/1.441130),
+                                        0
+                                       )
+                                )  
+                                )
+
+#normalize to 0-1 range
+github$log_name_count <- github$log_name_count/max(github$log_name_count, na.rm=T)
+
+#overlay male female hist
+hist(github$log_name_count[github$gender_female == 1], col=rgb(1,0,1,1/4),  breaks = 20, ylim = c(0,3000))
+hist(github$log_name_count[github$gender_male == 1],   col=rgb(0,0,1,1/4), breaks = 20, ylim = c(0,3000), add=T)
+```
+```{r}
+head(github)
+```
+
+Filter known gender
+```{r}
+g_m_f<-github[github$gender_unknown==0,]
+
+g_u<-github[github$gender_unknown==1,]
+
+ g_m_f2 <- g_m_f
+# g_u<-github[20001:30000,]
+# g_m_f2$male[g_m_f$successownrepos>20000]=1
+
+print("cases with any missing data")
+max(sapply(g_m_f, function(g_m_f) sum(is.na(g_m_f))))
+print("cases with full data")
+min(sapply(g_m_f, function(g_m_f) sum(!is.na(g_m_f))))
+```
+
+new start date
+```{r, fig.width = 7, fig.height = 7}
+g_m_f <- merge(g_m_f,joindate, by="userlogin")
+var_list <- cbind(colnames(g_m_f))
+#hist(g_m_f$date_since_reg)
+#plot(g_m_f$year2[g_m_f$year2>2000], g_m_f$date_since_reg[g_m_f$year2>2000])
+#sum(g_m_f$year2<2000)
+#table(g_m_f$date_since_reg[g_m_f$date_since_reg<100])
+#sum(g_m_f$date_since_reg<0)
+
+#plot(g_m_f$date_since_reg, g_m_f$pushes_log,col = alpha("black", 0.2), cex = 0.5)
+#abline(lm(g_m_f$pushes_log[g_m_f$date_since_reg>0]~g_m_f$date_since_reg[g_m_f$date_since_reg>0]))
+
+#plot(jitter(g_m_f$year2[g_m_f$year2>2000], factor = 1.5), jitter(g_m_f$year[g_m_f$year2>2000], factor = 1.5), xlab="new year variable", ylab="old year variable",col = alpha("black", 0.33), cex = 0.1)
+```
+
+names for unknown
+```{r}
+names(u_names)[names(u_names) == 'login'] <- 'userlogin'
+
+g_u <- merge(x=g_u,y=u_names,by="userlogin",all.x = T)
+
+g_u$Asian[is.na(g_u$Asian)==T] <- 0
+g_u$has_name[is.na(g_u$has_name)==T] <- 0
+```
+
+
+### DT Class
+main DT class variable
+```{r}
+g_m_f$DT_class <- as.factor(g_m_f$DT_class)
+
+g_u$DT_class <- as.factor(g_u$DT_class)
+
+table(g_m_f$DT_class)
+
+#female proportions in DT classes
+dt_female_props <- tapply(g_m_f$gender_female, g_m_f$DT_class, mean)
+dt_female_props <- dt_female_props[order(-dt_female_props)]
+
+#relevel DT class factor by female props
+dt_level_list <- as.numeric(names(dt_female_props))
+dt_female_props_df <- data.frame(cbind(dt_level_list, dt_female_props))
+colnames(dt_female_props_df) <- c("DT_class", "dt_female_props")
+g_m_f$DT_class <- factor(g_m_f$DT_class, levels=dt_level_list)
+
+#display
+tapply(g_m_f$gender_male, g_m_f$DT_class, mean)
+```
+
+Generating variables for female proportion for DT class
+```{r}
+g_m_f_merge <- merge(g_m_f, dt_female_props_df, by="DT_class")
+names(g_m_f_merge)[names(g_m_f_merge)=="dt_female_props"] <- "dt_female_props_orig"
+
+head(g_m_f_merge)
+```
+
+variables list again
+```{r}
+var_list <- cbind(colnames(g_m_f))
+var_list_u <- cbind(colnames(g_u))
+#var_list
+```
+
+
+#var_list
+
+###------------
+###  Analysis
+###------------
+
+
+
+```{r, fig.width = 9, fig.height = 3}
+par(pty="s", mfrow=c(1,3))
+#boxplot(g_m_f$femaleness ~ g_m_f$gender_female, main="femaleness", names=c("male","female"))
+#boxplot(g_m_f$femaleness_2 ~ g_m_f$gender_female, main="femaleness_2", names=c("male","female"))
+boxplot(g_m_f$femaleness_2_new ~ g_m_f$gender_female, main="femaleness_2_following", names=c("male","female"))
+boxplot(g_m_f$femaleness_2_new_following ~ g_m_f$gender_female, main="femaleness_2_new_following", names=c("male","female"))
+```
+
+
+```{r, fig.width = 9, fig.height = 3}
+par(pty="s", mfrow=c(1,3))
+#boxplot(github$femaleness ~ github$gender, main="femaleness")
+#boxplot(github$femaleness_2 ~ github$gender, main="femaleness_2")
+boxplot(github$femaleness_2_new ~ github$gender, main="femaleness_2_following")
+boxplot(github$femaleness_2_new_following ~ github$gender, main="femaleness_2_new_following")
+
+```
+
+
+
+###bivariate loess plots
+
+```{r}
+plot_male <- ggplot(g_m_f, aes(x = femaleness_2_following, y = log_success)) +
+  geom_point(data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<3000,],   aes(x = femaleness_2_new_following, y = log_success), size=0.1, shape=16, color="green4", alpha = 0.5) +
+  geom_point(data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<3000,], aes(x = femaleness_2_new_following, y = log_success), size=0.1, shape=16, color="orange",  alpha = 0) +
+  geom_line(stat="smooth", data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<3000,], 
+              aes(x = femaleness_2_new, y = log_success),
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.8, color="green4") +
+  #geom_line(stat="smooth", data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<10000,], 
+  #            aes(x = femaleness_2, y = log_success),
+  #            method = "loess", span = 0.5, se = F, size = 0.8, color="red") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "femaleness_2_new_following", y = "Repo success (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+plot_female <- ggplot(g_m_f, aes(x = femaleness_2_following, y = log_success)) +
+  geom_point(data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<3000,],   aes(x = femaleness_2_new_following, y = log_success), size=0.1, shape=16, color="green4", alpha = 0) +
+  geom_point(data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<3000,], aes(x = femaleness_2_new_following, y = log_success), size=0.1, shape=16, color="orange",  alpha = 0.5) +
+  #geom_line(stat="smooth", data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<10000,], 
+  #           aes(x = femaleness_2, y = log_success),
+  #            method = "loess", span = 0.5, se = F, size = 0.8, color="blue") +
+  geom_line(stat="smooth", data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<3000,], 
+              aes(x = femaleness_2_following, y = log_success),
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.8, color="orange") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "femaleness_2_new_following", y = "Repo success (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+cowplot::plot_grid(plot_male, plot_female,  nrow = 1, ncol=2, align = "vh", scale=1)
+```
+
+
+```{r, fig.width = 9, fig.height = 3}
+plot_male <- ggplot(g_m_f, aes(x = femaleness_2_following, y = followers_log)) +
+  geom_point(data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<3000,],   aes(x = femaleness_2_new_following, y = followers_log), size=0.1, shape=16, color="green4", alpha = 0.5) +
+  geom_point(data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<3000,], aes(x = femaleness_2_new_following, y = followers_log), size=0.1, shape=16, color="orange",  alpha = 0) +
+  geom_line(stat="smooth", data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<3000,], 
+              aes(x = femaleness_2_following, y = followers_log),
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.8, color="green4") +
+  #geom_line(stat="smooth", data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<10000,], 
+  #            aes(x = femaleness_2, y = log_success),
+  #            method = "loess", span = 0.5, se = F, size = 0.8, color="red") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "femaleness_2_new_following", y = "Followers (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+plot_female <- ggplot(g_m_f, aes(x = femaleness_2_following, y = followers_log)) +
+  geom_point(data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<3000,],   aes(x = femaleness_2_new_following, y = followers_log), size=0.1, shape=16, color="green4", alpha = 0) +
+  geom_point(data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<3000,], aes(x = femaleness_2_new_following, y = followers_log), size=0.1, shape=16, color="orange",  alpha = 0.5) +
+  #geom_line(stat="smooth", data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<10000,],orange
+  #           aes(x = femaleness_2, y = log_success),
+  #            method = "loess", span = 0.5, se = F, size = 0.8, color="blue") +
+  geom_line(stat="smooth", data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<3000,], 
+              aes(x = femaleness_2_following, y = followers_log),
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.8, color="orange") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "ffemaleness_2_new_following", y = "Followers (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+
+plot_both <- ggplot(g_m_f, aes(x = femaleness_2_following, y = followers_log)) +
+  geom_point(data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<3000,],   aes(x = femaleness_2_new_following, y = followers_log), size=0.1, shape=16, color="green4", alpha = 0.5) +
+  geom_point(data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<3000,], aes(x = femaleness_2_new_following, y = followers_log), size=0.1, shape=16, color="orange",  alpha = 0.5) +
+  geom_line(stat="smooth", data = g_m_f[g_m_f$gender_male==1 & g_m_f$successownrepos<10000,], 
+             aes(x = femaleness_2_following, y = followers_log),
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.8, color="green4") +
+  geom_line(stat="smooth", data = g_m_f[g_m_f$gender_female==1 & g_m_f$successownrepos<3000,], 
+              aes(x = femaleness_2_following, y = followers_log),
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.8, color="orange") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "femaleness 2", y = "Followers (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+cowplot::plot_grid(plot_male, plot_female, plot_both, nrow = 1, ncol=3, align = "vh", scale=1)
+```
+
+
+
+###______________________________
+###   Models in the main text
+###   A: OLS for log success
+###   Model 1. OLS for log success w controls
+###______________________________
+ main model - OLS with linear term
+```{r}
+m0_success_ols <- lm(
+             log_success ~ 
+               
+             gender_female +
+             tenure +
+             n_repos_log +
+             reposwhereactive_log #+
+             #collaborators_log +
+             #log_l_total_exposure
+             ,
+             data = g_m_f
+             )
+
+
+
+summary(m0_success_ols)
+
+
+m_success_ols <- lm(
+             log_success ~ 
+               
+             gender_female +
+             femaleness_2_new_following + 
+             gender_female:femaleness_2_new_following +
+             #log_name_count +
+             #gender_female:log_name_count +
+             
+             #followers_log +
+             tenure +
+             n_repos_log +
+             reposwhereactive_log #+
+             #collaborators_log +
+             #log_l_total_exposure
+             ,
+             data = g_m_f
+             )
+
+
+
+summary(m_success_ols)
+#anova(m_success_ols)
+
+#rel_imp_m_success_ols <- calc.relimp(m_success_ols,type=c("lmg"), rela=TRUE)
+
+
+print("lmg relative importance metrics")
+#round((cbind(rel_imp_m_success_ols$lmg)), digits=3)
+```
+
+
+
+```{r}
+summary(m_success_ols)$coefficients
+```
+
+
+```{r}
+coefficients(m_success_ols)
+```
+
+```{r}
+2.58*summary(m_success_ols)$coefficient[,2]
+```
+
+
+```{r}
+confint(m_success_ols, level = 0.99)
+```
+
+
+Followers
+```{r}
+m0_follow_ols <- lm(
+             followers_log ~ 
+               
+             gender_female +
+             tenure +
+             n_repos_log +
+             reposwhereactive_log #+
+             #collaborators_log +
+             #log_l_total_exposure
+             ,
+             data = g_m_f
+             )
+
+
+
+summary(m0_follow_ols)
+
+
+m_follow_ols <- lm(
+             followers_log ~ 
+               
+             gender_female +
+             femaleness_2_new_following + 
+             gender_female:femaleness_2_new_following +
+             #log_name_count +
+             #gender_female:log_name_count +
+             
+             #followers_log +
+             tenure +
+             n_repos_log +
+             reposwhereactive_log #+
+             #collaborators_log +
+             #log_l_total_exposure
+             ,
+             data = g_m_f
+             )
+
+
+
+summary(m_follow_ols)
+#anova(m_success_ols)
+
+rel_imp_m_followers_ols <- calc.relimp(m_follow_ols,type=c("lmg"), rela=TRUE)
+
+
+print("lmg relative importance metrics")
+round((cbind(rel_imp_m_followers_ols$lmg)), digits=3)
+```
+
+```{r}
+confint(m_follow_ols, level = 0.99)
+```
+
+
+
+### B: Survival logit
+### Model 1. Survival logit w controls
+
+survival logit
+```{r}
+m0_survival_logit <- glm(
+             still_active ~ 
+ 
+             gender_female +
+             tenure +
+             n_repos_log +
+             reposwhereactive_log #+
+             #collaborators_log +
+             #log_l_total_exposure
+             ,
+             family=binomial(link='logit'),
+             data = g_m_f
+             )
+
+
+
+summary(m0_survival_logit)
+
+
+m_survival_logit <- glm(
+             still_active ~ 
+ 
+             gender_female +
+             femaleness_2_new_following + 
+             gender_female:femaleness_2_new_following +
+             #log_name_count +
+             #gender_female:log_name_count +
+             
+             #followers_log +
+             tenure +
+             n_repos_log +
+             reposwhereactive_log #+
+             #collaborators_log +
+             #log_l_total_exposure
+             ,
+             family=binomial(link='logit'),
+             data = g_m_f
+             )
+
+
+
+summary(m_survival_logit)
+m_survival_logit_r2 <- round(pR2(m_survival_logit)[4], digits=3)
+
+m_survival_logit_r2
+```
+
+
+
+```{r}
+
+print(AIC(m_survival_logit))
+print(BIC(m_survival_logit))
+```
+
+```{r}
+confint(m0_survival_logit, level = 0.95)
+confint(m0_success_ols, level = 0.95)
+
+```
+
+
+###Combined marginsplot
+###Synthetic data file for male-female data
+
+Variables lists
+```{r}
+#model
+model_object <- m_success_ols
+
+#get coefficient names
+var_names <- names(model_object$coefficients)
+
+#delete intercept
+var_sel <- grepl("ntercept", var_names)
+var_names <- var_names[!var_sel]
+
+#delete squared term
+var_sel <- grepl("2)", var_names)
+var_names <- var_names[!var_sel]
+
+#save interaction
+var_sel <- grepl(":", var_names)
+var_inter_names <- var_names[var_sel]
+
+var_inter_names <- unique(unlist(strsplit(var_inter_names, "[:]")))
+
+#delete interactions
+var_sel <- grepl(":", var_names)
+var_names <- var_names[!var_sel]
+
+#delete variables involved in interactions
+for (i in 1:length(var_inter_names)){
+var_names <- var_names[var_names!=var_inter_names[i]]
+}
+
+#results
+cbind(var_inter_names)
+cbind(var_names)
+```
+
+Generate synthetic data
+```{r}
+#observed data file
+data_file <- g_m_f
+
+#interaction grid settings
+var1_from <- 0
+var1_to   <- 1
+var1_step <- 1
+
+var2_from <- 0
+var2_to   <- 1
+var2_step <- 0.01
+
+
+#number of variables and interactions
+n_inter_vars <- length(var_inter_names)
+n_vars <- length(var_names)
+
+
+#interaction combination
+inter_grid <- expand.grid(
+                     seq(from = var1_from, to = var1_to, by = var1_step),
+                     seq(from = var2_from, to = var2_to, by = var2_step)
+                     )
+
+#fixing controls at the mean
+means_vec <- array(0, dim=c(1,n_vars))
+
+for (v in 1:n_vars){
+  means_vec[v] <- mean(as.numeric(unlist(data_file[var_names[v]])), na.rm=TRUE)
+}
+
+#assembling the synthetic datafile
+n_rows <- dim(inter_grid)[1]
+
+means_grid <- matrix(means_vec,nrow=n_rows,ncol=length(means_vec),byrow=TRUE)
+
+syn_data <- data.frame(cbind(inter_grid, means_grid))
+names(syn_data) <- c(var_inter_names,var_names)
+```
+
+
+
+
+Prediction for success ols
+```{r}
+#source("pb.R")
+predvals <- predict(m_success_ols, newdata=syn_data, se.fit = TRUE)
+
+syn_data$success_ols_pred <- 10^predvals$fit
+syn_data$success_ols_low <- 10^(predvals$fit - 1.96 * predvals$se.fit)
+syn_data$success_ols_up <- 10^(predvals$fit + 1.96 * predvals$se.fit)
+
+head(syn_data)
+```
+
+Prediction for followers ols
+```{r}
+#source("pb.R")
+predvals <- predict(m_follow_ols, newdata=syn_data, se.fit = TRUE)
+
+syn_data$follow_ols_pred <- 10^predvals$fit
+syn_data$follow_ols_low <- 10^(predvals$fit - 1.96 * predvals$se.fit)
+syn_data$follow_ols_up <- 10^(predvals$fit + 1.96 * predvals$se.fit)
+
+head(syn_data)
+```
+
+Prediction for survival logit
+```{r}
+predvals <- predict(m_survival_logit, newdata=syn_data, type="response", se.fit=TRUE)
+
+critval <- 1.96 ## approx 95% CI
+upr <- predvals$fit + (critval * predvals$se.fit)
+lwr <- predvals$fit - (critval * predvals$se.fit)
+fit <- predvals$fit
+
+
+
+
+syn_data$glm_pred <- fit
+syn_data$glm_low <- lwr
+syn_data$glm_up <- upr
+
+head(syn_data)
+```
+
+
+
+
+Margins plot
+```{r, fig.width = 9, fig.height = 3}
+
+#-------------scale_x_continuous(expand = c(0,0), labels = dropLeadingZero)-----------------------------
+scaleFUN <- function(x) sprintf("%.2f", x)
+
+dropLeadingZero <- function(l){
+  str_replace(scaleFUN(l), '0[.]', '.') #[.] avoids using "." as regex wildcard
+}
+#-------------------------------------------------------------------------------------------------------
+
+
+#median femaleness locations on x axis
+male_median_femaleness   <- as.numeric(summary(g_m_f$femaleness_2_new_following[g_m_f$gender_female==0])[3])
+female_median_femaleness <- as.numeric(summary(g_m_f$femaleness_2_new_following[g_m_f$gender_female==1])[3])
+
+male_q1_femaleness <- as.numeric(summary(g_m_f$femaleness_2_new_following[g_m_f$gender_male==1])[2])
+female_q1_femaleness <- as.numeric(summary(g_m_f$femaleness_2_new_following[g_m_f$gender_female==1])[2])
+
+male_q3_femaleness <- as.numeric(summary(g_m_f$femaleness_2_new_following[g_m_f$gender_male==1])[5])
+female_q3_femaleness <- as.numeric(summary(g_m_f$femaleness_2_new_following[g_m_f$gender_female==1])[5])
+
+
+
+
+
+theme_set(theme_bw())
+
+fol_ols_min <- min(syn_data$follow_ols_low)
+fol_ols_max <- max(syn_data$follow_ols_up)
+
+succ_ols_min <- min(syn_data$success_ols_low)
+succ_ols_max <- max(syn_data$success_ols_up)
+
+surv_ymin <- min(syn_data$glm_low)
+surv_ymax <- max(syn_data$glm_up)
+
+ts <- 3.2
+tit_s <- 11
+
+m_follow_ols_margins <- ggplot()+
+  
+  #male prediction and CI
+  geom_line(data=syn_data[syn_data$gender_female==0,], aes(femaleness_2_new_following, follow_ols_pred), color="green4")+
+  geom_ribbon(data=syn_data[syn_data$gender_female==0,], aes(femaleness_2_new_following, ymin=follow_ols_low, ymax=follow_ols_up),alpha=0.2, fill="green4")+
+
+  #female prediciton and CI
+  geom_line(data=syn_data[syn_data$gender_female==1,], aes(femaleness_2_new_following, follow_ols_pred), color="orange")+
+  geom_ribbon(data=syn_data[syn_data$gender_female==1,], aes(femaleness_2_new_following, ymin=follow_ols_low,ymax=follow_ols_up),alpha=0.2, fill="orange")+   
+  
+  #vertical lines at median femaleness
+  geom_vline(xintercept = male_median_femaleness,   linetype="dashed", size=0.2, alpha=1, color="green4") +
+  geom_rect(aes(xmin=male_q1_femaleness, xmax=male_q3_femaleness, ymin=fol_ols_min, ymax=fol_ols_max), alpha=0.05, fill="green4") +
+  
+  geom_vline(xintercept = female_median_femaleness, linetype="dashed", size=0.2, alpha=1, color="orange") +
+  geom_rect(aes(xmin=female_q1_femaleness, xmax=female_q3_femaleness, ymin=fol_ols_min, ymax=fol_ols_max), alpha=0.05, fill="orange") +
+  
+  #axes formatting
+  scale_y_continuous(
+                     trans='log10',
+                     limits=c(fol_ols_min, fol_ols_max), 
+                     expand = c(0.001,0.001), breaks = c(0.1, 0.5, 1, 1.5, 2, 2.5, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500),
+                     #labels = dropLeadingZero,
+                     name="Predicted followers") +
+  scale_x_continuous(expand = c(0.001,0.001), 
+                     breaks = pretty(syn_data$femaleness_2_new_following, n = 5), 
+                     labels = dropLeadingZero,
+                     name="Femaleness") +
+  
+  
+  
+  #test annotations
+  #annotate(geom="text", x=0.13,   y=685, label="males", col="black", size=ts, hjust = 0) +
+  #annotate(geom="text", x=0.03,   y=340, label="females", col="black", size=ts, hjust = 0) +
+  
+  annotate(geom = "text", x = 0.50, y = 32,  label = "males prediction",   color = "black", size=ts, angle = -29, hjust = -.3) +
+  annotate(geom = "text", x = 0.50, y = 47.5, label = "females prediction", color = "black", size=ts, angle = -16.5, hjust = -.05) +
+  # 
+  annotate(geom="text", x=male_median_femaleness-0.005,   y=19.75, label="male", col="black", size=ts, hjust = 1) +
+  annotate(geom="text", x=male_median_femaleness-0.005,   y=18.3, label="median", col="black", size=ts, hjust = 1) +
+  # 
+  annotate(geom="text", x=male_q1_femaleness+(male_q3_femaleness-male_q1_femaleness)/2,   y=16.3, label="male IQR", col="black", size=ts, hjust = 0.5) +
+  geom_segment(aes(x=male_q1_femaleness, xend=male_q3_femaleness, y=15.3, yend=15.3), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  geom_segment(aes(xend=male_q1_femaleness, x=male_q3_femaleness, y=15.3, yend=15.3), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  # 
+  # #annotate(geom="text", x=male_q1_femaleness-0.01,   y=20, label="males Q1", col="black", size=ts, hjust = 1) +
+  # #annotate(geom="text", x=male_q3_femaleness-0.01,   y=20, label="males Q3", col="black", size=ts, hjust = 0) +
+  # 
+  annotate(geom="text", x=female_median_femaleness-0.005,   y=19.75, label="female", col="black", size=ts, hjust = 1) +
+  annotate(geom="text", x=female_median_femaleness-0.005,   y=18.3, label="median", col="black", size=ts, hjust = 1) +
+  # 
+  annotate(geom="text", x=female_q1_femaleness+(female_q3_femaleness-female_q1_femaleness)/2,   y=16.3, label="female IQR", col="black", size=ts, hjust = 0.5) +
+  geom_segment(aes(x=female_q1_femaleness, xend=female_q3_femaleness, y=15.3, yend=15.3), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  geom_segment(aes(xend=female_q1_femaleness, x=female_q3_femaleness, y=15.3, yend=15.3), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  
+  #annotate(geom="text", x=female_q1_femaleness-0.01,   y=0.1, label="females Q1", col="black", size=ts, hjust = 1) +
+  #annotate(geom="text", x=female_q3_femaleness-0.01,   y=0.1, label="females Q3", col="black", size=ts, hjust = 0) +
+  
+  labs(title="Attention")+
+  
+  #theme
+  theme(aspect.ratio=1, 
+            panel.grid.major = element_blank(), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.y = element_blank(),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            axis.text.x = element_text(size = 9, colour = "black"),
+            axis.text.y = element_text(size = 9, colour = "black"),
+            plot.margin = unit(c(0,10,0,0), "points")
+            )
+
+
+
+
+
+m_success_ols_margins <- ggplot()+
+  
+  #male prediction and CI
+  geom_line(data=syn_data[syn_data$gender_female==0,], aes(femaleness_2_new_following, success_ols_pred), color="green4")+
+  geom_ribbon(data=syn_data[syn_data$gender_female==0,], aes(femaleness_2_new_following, ymin=success_ols_low, ymax=success_ols_up),alpha=0.2, fill="green4")+
+
+  #female prediciton and CI
+  geom_line(data=syn_data[syn_data$gender_female==1,], aes(femaleness_2_new_following, success_ols_pred), color="orange")+
+  geom_ribbon(data=syn_data[syn_data$gender_female==1,], aes(femaleness_2_new_following, ymin=success_ols_low,ymax=success_ols_up),alpha=0.2, fill="orange")+   
+  
+  #vertical lines at median femaleness
+  geom_vline(xintercept = male_median_femaleness,   linetype="dashed", size=0.2, alpha=1, color="green4") +
+  geom_rect(aes(xmin=male_q1_femaleness, xmax=male_q3_femaleness, ymin=succ_ols_min, ymax=succ_ols_max), alpha=0.05, fill="green4") +
+  
+  geom_vline(xintercept = female_median_femaleness, linetype="dashed", size=0.2, alpha=1, color="orange") +
+  geom_rect(aes(xmin=female_q1_femaleness, xmax=female_q3_femaleness, ymin=succ_ols_min, ymax=succ_ols_max), alpha=0.05, fill="orange") +
+  
+  #axes formatting
+  scale_y_continuous(
+                     trans='log10',
+                     limits=c(succ_ols_min, succ_ols_max), 
+                     expand = c(0.001,0.001), 
+                     breaks = c(0.1, 0.5, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2, 2.5, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500),
+                     name="Predicted success") +
+ scale_x_continuous(expand = c(0.001,0.001), 
+                    breaks = pretty(syn_data$femaleness_2_new_following, n = 5), 
+                    labels = dropLeadingZero,
+                    name="Femaleness") +
+  
+  
+  labs(title="Success")+
+  
+  #theme
+  theme(aspect.ratio=1, 
+            panel.grid.major = element_blank(), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.y = element_blank(),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            axis.text.x = element_text(size = 9, colour = "black"),
+            axis.text.y = element_text(size = 9, colour = "black"),
+            plot.margin = unit(c(0,10,0,0), "points")
+            )
+
+
+
+
+
+
+
+
+m_survival_glm_margins <- ggplot()+
+  
+  #male prediction and CI
+  geom_line(data=syn_data[syn_data$gender_female==0,], aes(femaleness_2_new_following, glm_pred), color="green4")+
+  geom_ribbon(data=syn_data[syn_data$gender_female==0,], aes(femaleness_2_new_following, ymin=glm_low, ymax=glm_up),alpha=0.2, fill="green4")+
+
+  #female prediciton and CI  
+  geom_line(data=syn_data[syn_data$gender_female==1,], aes(femaleness_2_new_following, glm_pred), color="orange")+
+  geom_ribbon(data=syn_data[syn_data$gender_female==1,], aes(femaleness_2_new_following, ymin=glm_low,ymax=glm_up),alpha=0.2, fill="orange")+   
+  
+ #vertical lines at median femaleness
+ geom_vline(xintercept = male_median_femaleness,   linetype="dashed", size=0.2, alpha=1, color="green4") +
+ geom_rect(aes(xmin=male_q1_femaleness, xmax=male_q3_femaleness, ymin=surv_ymin, ymax=surv_ymax), alpha=0.05, fill="green4") +
+ #  
+ geom_vline(xintercept = female_median_femaleness, linetype="dashed", size=0.2, alpha=1, color="orange") +
+ geom_rect(aes(xmin=female_q1_femaleness, xmax=female_q3_femaleness, ymin=surv_ymin, ymax=surv_ymax), alpha=0.05, fill="orange") +
+ #  
+ #  #axes formatting
+ scale_y_continuous(
+                    limits=c(surv_ymin, surv_ymax), 
+                    expand = c(0.001,0.001), 
+                    breaks = c(0.85, 0.87, 0.89, 0.91, 0.93, 0.95 ),
+                    labels = dropLeadingZero,
+                    name="Predicted prob. of survival") +
+ scale_x_continuous(expand = c(0.001,0.001), 
+                    breaks = pretty(syn_data$femaleness_2_new_following, n = 5), 
+                    labels = dropLeadingZero,
+                    name="Femaleness") +
+ #  
+ #  #annotate(geom="text", x=0.27,   y=0.98, label="males", col="black", size=3.3, hjust = 0) +
+ #  #annotate(geom="text", x=0.57,   y=0.83, label="females", col="black", size=3.3, hjust = 0) +
+  
+  labs(title="Survival")+
+  
+  #theme
+  theme(aspect.ratio=1, 
+            panel.grid.major = element_blank(), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.y = element_blank(),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            axis.text.x = element_text(size = 9, colour = "black"),
+            axis.text.y = element_text(size = 9, colour = "black"),
+            plot.margin = unit(c(0,10,0,0), "points")
+            )
+
+
+
+
+
+
+
+#grid.arrange(m_success_ols_margins, um_success_ols_margins, m_survival_glm_margins,  um_survival_glm_margins, nrow = 2, ncol=2)
+
+p <- cowplot::plot_grid(m_follow_ols_margins, m_success_ols_margins, m_survival_glm_margins,  nrow = 1, ncol=3, align = "vh", scale=1)
+title <- ggdraw() + draw_label("GitHub", fontface='bold')
+cowplot::plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1)) 
+ggsave("GitHUB_3margins.pdf", p, width = 8, height = 3)
+#print(p)
+
+```
+
+```{r}
+male_femaleness=median(github[github$gender_male==1,]$femaleness_2_new_following)
+female_femaleness=median(github[github$gender_female==1,]$femaleness_2_new_following)
+male_femaleness
+```
+```{r}
+male_femaleness=median(github[github$gender_male==1,]$femaleness_2_new_following)
+female_femaleness=median(github[github$gender_female==1,]$femaleness_2_new_following)
+male_femaleness
+t(syn_data[syn_data$femaleness_2_new_following==female_femaleness,])
+
+#t(syn_data[syn_data$femaleness_2_new_following==male_femaleness,])
+
+```
+
+
+
+
+```{r}
+table(behance$survivial_clean, behance$gender)
+table(behance$survival, behance$gender)
+```
+
+```{r}
+hist(log10(behance$project_appreciations+1))
+behance$log_project_appr <- log10(behance$project_appreciations+1)
+```
+
+```{r}
+hist(behance$appreciate)
+```
+
+```{r}
+table(behance$tenure)
+behance$tenure2 <- 2017-behance$tenure
+table(behance$tenure2)
+```
+
+```{r}
+hist(log10(behance$followers+1))
+behance$followers_log <- log10(behance$followers+1)
+```
+
+```{r}
+hist(log10(behance$project_counts+1))
+behance$n_projects_log <- log10(behance$project_counts+1)
+```
+
+```{r}
+hist(log10(behance$project_views+1))
+behance$project_views_log <- log10(behance$project_views+1)
+```
+
+```{r}
+hist(log10(behance$total_activity+1))
+behance$total_activity_log <- log10(behance$total_activity+1)
+```
+
+```{r}
+ggplot(behance, aes(x = followers_log, y = log_project_appr)) +
+  geom_point(data = behance[behance$gender_male==1,],   aes(x = followers_log, y = log_project_appr), size=0.7, color="green4", alpha = 0.1) +
+  geom_point(data = behance[behance$gender_female==1,], aes(x = followers_log, y = log_project_appr), size=0.7, color="orange", alpha = 0.1) +
+  geom_smooth(data = behance[behance$gender_male==1 & behance$log_project_appr<10000,],
+              aes(x = followers_log, y = log_project_appr), 
+              method = "loess", se = T, size = 1.5, color="green4") +
+  geom_smooth(data = behance[behance$gender_female==1 & behance$log_project_appr<10000,], 
+              aes(x = followers_log, y = log_project_appr), 
+              method = "loess", se = T, size = 1.5, color="orange") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "followers log", y = "Project appreciations (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+  )
+```
+
+```{r}
+ggplot(behance, aes(x = project_views_log, y = appreciate)) +
+  geom_point(data = behance[behance$gender_male==1,],   aes(x = project_views_log, y = appreciate), size=0.7, color="green4", alpha = 0.1) +
+  geom_point(data = behance[behance$gender_female==1,], aes(x = project_views_log, y = appreciate), size=0.7, color="orange", alpha = 0.1) +
+  geom_smooth(data = behance[behance$gender_male==1 & behance$log_project_appr<10000,],
+              aes(x = project_views_log, y = appreciate), 
+              formula = 'y ~ x', method = "loess", se = T, size = 1.5, color="green4") +
+  geom_smooth(data = behance[behance$gender_female==1 & behance$log_project_appr<10000,], 
+              aes(x = project_views_log, y = appreciate), 
+              formula = 'y ~ x', method = "loess", se = T, size = 1.5, color="orange") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "followers log", y = "Project appreciations (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+```
+```{r}
+cor(behance$followers_log, behance$log_project_appr)
+
+```
+
+```{r}
+plot_male <- ggplot(behance, aes(x = femaleness_2_new, y = log_project_appr)) +
+  geom_point(data = behance[behance$gender_male==1,],   aes(x = femaleness_2_new_following, y = log_project_appr), size=0.2, shape=16, color="green4", alpha = 0.3) +
+  geom_point(data = behance[behance$gender_female==1,], aes(x = femaleness_2_new_following, y = log_project_appr), size=0.2, shape=16, color="orange", alpha = 0) +
+  geom_line(stat="smooth", data = behance[behance$gender_male==1 & behance$log_project_appr>=0,],
+              aes(x = femaleness_2_new_following, y = log_project_appr), 
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.5, color="green4") +
+  #geom_line(stat="smooth", data = behance[behance$gender_female==1 & behance$log_project_appr>=0,],
+  #            aes(x = femaleness_2_new, y = log_project_appr), 
+  #            method = "loess", span = 0.5, se = F, size = 0, color="red") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "femaleness_2_new_following", y = "Project appreciations (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+plot_female <- ggplot(behance, aes(x = femaleness_2_new, y = log_project_appr)) +
+  geom_point(data = behance[behance$gender_male==1,],   aes(x = femaleness_2_new_following, y = log_project_appr), size=0.2, shape=16, color="green4", alpha = 0) +
+  geom_point(data = behance[behance$gender_female==1,], aes(x = femaleness_2_new_following, y = log_project_appr), size=0.2, shape=16, color="orange", alpha = 0.3) +
+  #geom_line(stat="smooth", data = behance[behance$gender_male==1 & behance$log_project_appr>=0,],
+  #            aes(x = femaleness_2_new, y = log_project_appr), 
+  #            method = "loess", span = 0.5, se = F, size = 0, color="blue") +
+  geom_line(stat="smooth", data = behance[behance$gender_female==1 & behance$log_project_appr>=0,],
+              aes(x = femaleness_2_new_following, y = log_project_appr), 
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.5, color="orange") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "ffemaleness_2_new_following", y = "Project appreciations (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+cowplot::plot_grid(plot_male, plot_female,  nrow = 1, ncol=2, align = "vh", scale=1)
+```
+```{r, fig.width = 9, fig.height = 3}
+plot_male <- ggplot(behance, aes(x = femaleness_2_new, y = followers_log)) +
+  geom_point(data = behance[behance$gender_male==1,],   aes(x = femaleness_2_new_following, y = followers_log), size=0.2, shape=16, color="green4", alpha = 0.3) +
+  geom_point(data = behance[behance$gender_female==1,], aes(x = femaleness_2_new_following, y = followers_log), size=0.2, shape=16, color="orange", alpha = 0) +
+  geom_line(stat="smooth", data = behance[behance$gender_male==1 & behance$log_project_appr>=0,],
+              aes(x = femaleness_2_new_following, y = followers_log), 
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.5, color="green4") +
+  #geom_line(stat="smooth", data = behance[behance$gender_female==1 & behance$log_project_appr>=0,],
+  #            aes(x = femaleness_2_new, y = log_project_appr), 
+  #            method = "loess", span = 0.5, se = F, size = 0, color="red") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "ffemaleness_2_new_following", y = "Followers (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+plot_female <- ggplot(behance, aes(x = femaleness_2_new, y = followers_log)) +
+  geom_point(data = behance[behance$gender_male==1,],   aes(x = femaleness_2_new_following, y = followers_log), size=0.2, shape=16, color="green4", alpha = 0) +
+  geom_point(data = behance[behance$gender_female==1,], aes(x = femaleness_2_new_following, y = followers_log), size=0.2, shape=16, color="orange", alpha = 0.3) +
+  #geom_line(stat="smooth", data = behance[behance$gender_male==1 & behance$log_project_appr>=0,],
+  #            aes(x = femaleness_2_new, y = log_project_appr), 
+  #            method = "loess", span = 0.5, se = F, size = 0, color="blue") +
+  geom_line(stat="smooth", data = behance[behance$gender_female==1 & behance$log_project_appr>=0,],
+              aes(x = femaleness_2_new_following, y = followers_log), 
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.5, color="orange") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "ffemaleness_2_new_following", y = "Followers (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+
+plot_both <- ggplot(behance, aes(x = femaleness_2_new, y = followers_log)) +
+  geom_point(data = behance[behance$gender_male==1,],   aes(x = femaleness_2_new, y = followers_log), size=0.2, shape=16, color="green4", alpha = 0.3) +
+  geom_point(data = behance[behance$gender_female==1,], aes(x = femaleness_2_new, y = followers_log), size=0.2, shape=16, color="orange", alpha = 0.3) +
+  geom_line(stat="smooth", data = behance[behance$gender_male==1 & behance$log_project_appr>=0,],
+              aes(x = femaleness_2_new, y = followers_log), 
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.5, color="green4") +
+  geom_line(stat="smooth", data = behance[behance$gender_female==1 & behance$log_project_appr>=0,],
+              aes(x = femaleness_2_new, y = followers_log), 
+              formula = 'y ~ x', method = "loess", span = 0.5, se = F, size = 0.5, color="orange") +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "femaleness 2 new", y = "Followers (log)") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+
+cowplot::plot_grid(plot_male, plot_female, plot_both, nrow = 1, ncol=3, align = "vh", scale=1)
+```
+```{r}
+ggplot(behance, aes(x = femaleness_2_new, y = survival)) +
+  geom_point(data = behance[behance$gender_male==1,], aes(x = femaleness_2_new_following, y = survival), size=0.7, color="green4", alpha = 0.01, na.rm = T) +
+  geom_point(data = behance[behance$gender_female==1,], aes(x = femaleness_2_new_following, y = survival), size=0.7, color="orange", alpha = 0.01, na.rm = T) +
+  geom_smooth(data = behance[behance$gender_male==1 & behance$log_project_appr<10000,],
+              aes(x = femaleness_2_new_following, y = survival), 
+              method="glm", method.args = list(family = "binomial"), formula=y~x, #+I(x^2)+I(x^3)+I(x^0.5)+I(x^0.33), 
+              se = F, size = 1.5, color="green4", na.rm = T) +
+  geom_smooth(data = behance[behance$gender_female==1 & behance$log_project_appr<10000,], 
+              aes(x = femaleness_2_new_following, y = survival), 
+              method="glm", method.args = list(family = "binomial"), formula=y~x, #+I(x^2)+I(x^3)+I(x^0.5)+I(x^0.33), 
+              se = F, size = 1.5, color="orange", na.rm = T) +
+  #geom_ribbon(aes(ymin = lci, ymax = uci), fill = "green", alpha = 0.5) +
+  #geom_line(aes(y = fit)) +
+  labs(x = "femaleness 2 new", y = "Survival") + 
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2)
+        )
+```
+```{r}
+m0_success_ols_B <- lm(
+             log_project_appr ~ 
+               
+             gender_female +
+             tenure2 +
+             n_projects_log +
+             total_activity_log
+             ,
+             data = behance
+             )
+
+
+
+summary(m0_success_ols_B)
+
+
+m_success_ols_B <- lm(
+             log_project_appr ~ 
+               
+             gender_female +
+             femaleness_2_new_following + 
+             #I(femaleness_2_new^2) + 
+             gender_female:femaleness_2_new_following +
+             #gender_female:I(femaleness_2_new^2) +
+            
+             #followers_log +
+             tenure2 +
+             n_projects_log +
+             total_activity_log
+             ,
+             data = behance
+             )
+
+
+
+summary(m_success_ols_B)
+#anova(m_success_ols)
+
+rel_imp_m_success_ols_B <- calc.relimp(m_success_ols_B,type=c("lmg"), rela=TRUE)
+
+
+print("lmg relative importance metrics")
+round((cbind(rel_imp_m_success_ols_B$lmg)), digits=3)
+```
+
+```{r}
+confint(m_success_ols_B, level = 0.99)
+
+```
+
+
+```{r}
+m0_follow_ols_B <- lm(
+             followers_log ~ 
+               
+             gender_female +
+             tenure2 +
+             n_projects_log +
+             total_activity_log
+             ,
+             data = behance
+             )
+
+
+
+summary(m0_follow_ols_B)
+
+
+m_follow_ols_B <- lm(
+             followers_log ~ 
+               
+             gender_female +
+             femaleness_2_new_following + 
+             #I(femaleness_2_new^2) + 
+             gender_female:femaleness_2_new_following +
+             #gender_female:I(femaleness_2_new^2) +
+            
+             tenure2 +
+             n_projects_log +
+             total_activity_log
+             ,
+             data = behance
+             )
+
+
+
+summary(m_follow_ols_B)
+#anova(m_follow_ols)
+
+rel_imp_m_follow_ols_B <- calc.relimp(m_follow_ols_B,type=c("lmg"), rela=TRUE)
+
+
+print("lmg relative importance metrics")
+round((cbind(rel_imp_m_follow_ols_B$lmg)), digits=3)
+```
+
+```{r}
+confint(m_follow_ols_B, level = 0.99)
+
+```
+```{r}
+AIC(m_follow_ols_B)
+```
+
+```{r}
+BIC(m_follow_ols_B)
+```
+
+
+```{r}
+
+m0_survival_logit_B <- glm(
+             survival ~ 
+               
+             gender_female +
+
+             tenure2 +
+             n_projects_log +
+              total_activity_log
+             ,
+             family=binomial(link='logit'),
+             data = behance
+             )
+
+
+
+summary(m0_survival_logit_B)
+
+m_survival_logit_B <- glm(
+             survival ~ 
+               
+             gender_female +
+             femaleness_2_new_following + 
+             #I(femaleness_2_new^2) + 
+             gender_female:femaleness_2_new_following +
+             #gender_female:I(femaleness_2_new^2) +
+            
+             #followers_log +
+             tenure2 +
+             n_projects_log +
+              total_activity_log
+             ,
+             family=binomial(link='logit'),
+             data = behance
+             )
+
+
+
+summary(m_survival_logit_B)
+
+m_survival_logit_r2_B <- round(pR2(m_survival_logit_B)[4], digits=3)
+
+m_survival_logit_r2_B
+```
+
+```{r}
+confint(m_survival_logit_B, level = 0.99)
+```
+
+
+```{r}
+#model
+
+model_object_B <- m_success_ols_B
+
+#get coefficient names
+var_names_B <- names(model_object_B$coefficients)
+
+#delete intercept
+var_sel <- grepl("ntercept", var_names_B)
+var_names_B <- var_names_B[!var_sel]
+
+#delete squared term
+var_sel <- grepl("2)", var_names_B)
+var_names_B <- var_names_B[!var_sel]
+
+#save interaction
+var_sel <- grepl(":", var_names_B)
+var_inter_names_B <- var_names_B[var_sel]
+
+var_inter_names_B <- unique(unlist(strsplit(var_inter_names_B, "[:]")))
+
+#delete interactions
+var_sel <- grepl(":", var_names_B)
+var_names_B <- var_names_B[!var_sel]
+
+#delete variables involved in interactions
+for (i in 1:length(var_inter_names_B)){
+var_names_B <- var_names_B[var_names_B!=var_inter_names_B[i]]
+}
+
+#results
+cbind(var_inter_names_B)
+cbind(var_names_B)
+```
+```{r}
+#observed data file
+data_file_B <- behance
+
+#interaction grid settings
+var1_from <- 0
+var1_to   <- 1
+var1_step <- 1
+
+var2_from <- 0
+var2_to   <- 1
+var2_step <- 0.01
+
+
+#number of variables and interactions
+n_inter_vars_B <- length(var_inter_names_B)
+n_vars_B <- length(var_names_B)
+
+
+#interaction combination
+inter_grid_B <- expand.grid(
+                     seq(from = var1_from, to = var1_to, by = var1_step),
+                     seq(from = var2_from, to = var2_to, by = var2_step)
+                     )
+
+#fixing controls at the mean
+means_vec_B <- array(0, dim=c(1,n_vars_B))
+
+for (v in 1:n_vars_B){
+  means_vec_B[v] <- mean(as.numeric(unlist(data_file_B[var_names_B[v]])), na.rm=TRUE)
+}
+
+#assembling the synthetic datafile
+n_rows_B <- dim(inter_grid_B)[1]
+
+means_grid_B <- matrix(means_vec_B,nrow=n_rows,ncol=length(means_vec_B),byrow=TRUE)
+
+syn_data_B <- data.frame(cbind(inter_grid_B, means_grid_B))
+names(syn_data_B) <- c(var_inter_names_B,var_names_B)
+```
+
+
+```{r}
+#source("pb.R")
+predvals_B <- predict(m_success_ols_B, newdata=syn_data_B, se.fit = TRUE)
+
+syn_data_B$success_ols_pred <- 10^predvals_B$fit
+syn_data_B$success_ols_low <- 10^(predvals_B$fit - 1.96 * predvals_B$se.fit)
+syn_data_B$success_ols_up <- 10^(predvals_B$fit + 1.96 * predvals_B$se.fit)
+
+head(syn_data_B)
+```
+
+```{r}
+#source("pb.R")
+predvals <- predict(m_follow_ols_B, newdata=syn_data_B, se.fit = TRUE)
+
+syn_data_B$follow_ols_pred <- 10^predvals$fit
+syn_data_B$follow_ols_low <- 10^(predvals$fit - 1.96 * predvals$se.fit)
+syn_data_B$follow_ols_up <- 10^(predvals$fit + 1.96 * predvals$se.fit)
+```
+
+```{r}
+predvals <- predict(m_survival_logit_B, newdata=syn_data_B, type="response", se.fit=TRUE)
+
+critval <- 1.96 ## approx 95% CI
+upr <- predvals$fit + (critval * predvals$se.fit)
+lwr <- predvals$fit - (critval * predvals$se.fit)
+fit <- predvals$fit
+
+syn_data_B$glm_pred <- fit
+syn_data_B$glm_low <- lwr
+syn_data_B$glm_up <- upr
+
+head(syn_data_B)
+
+```
+```{r}
+median(behance[behance$gender_female==1,]$femaleness_2_new_following)
+
+```
+
+```{r}
+male_femaleness=median(behance[behance$gender_male==1,]$femaleness_2_new_following)
+female_femaleness=median(behance[behance$gender_female==1,]$femaleness_2_new_following)
+
+```
+
+
+
+```{r}
+male_femaleness
+```
+
+
+
+
+```{r}
+t(syn_data_B[syn_data_B$femaleness_2_new_following==0.36,])
+```
+
+
+
+
+Margins plot
+```{r, fig.width = 9, fig.height = 3}
+
+#-------------scale_x_continuous(expand = c(0,0), labels = dropLeadingZero)-----------------------------
+scaleFUN <- function(x) sprintf("%.2f", x)
+
+dropLeadingZero <- function(l){
+  str_replace(scaleFUN(l), '0[.]', '.') #[.] avoids using "." as regex wildcard
+}
+#-------------------------------------------------------------------------------------------------------
+
+
+
+#median femaleness locations on x axis
+b_male_median_femaleness   <- as.numeric(summary(behance$femaleness_2_new_following[behance$gender_female==0])[3])
+b_female_median_femaleness <- as.numeric(summary(behance$femaleness_2_new_following[behance$gender_female==1])[3])
+
+b_male_q1_femaleness <- as.numeric(summary(behance$femaleness_2_new_following[behance$gender_male==1])[2])
+b_female_q1_femaleness <- as.numeric(summary(behance$femaleness_2_new_following[behance$gender_female==1])[2])
+
+b_male_q3_femaleness <- as.numeric(summary(behance$femaleness_2_new_following[behance$gender_male==1])[5])
+b_female_q3_femaleness <- as.numeric(summary(behance$femaleness_2_new_following[behance$gender_female==1])[5])
+
+
+
+theme_set(theme_bw())
+
+b_fol_ols_min <- min(syn_data_B$follow_ols_low)
+b_fol_ols_max <- max(syn_data_B$follow_ols_up)
+
+b_succ_ols_min <- min(syn_data_B$success_ols_low)
+b_succ_ols_max <- max(syn_data_B$success_ols_up)
+
+b_surv_ymin <- min(syn_data_B$glm_low)
+b_surv_ymax <- max(syn_data_B$glm_up)
+
+ts <- 3.2
+tit_s <- 11
+
+m_follow_ols_margins_B <- ggplot()+
+  
+  #male prediction and CI
+  geom_line(data=syn_data_B[syn_data_B$gender_female==0,], aes(femaleness_2_new_following, follow_ols_pred), color="green4")+
+  geom_ribbon(data=syn_data_B[syn_data_B$gender_female==0,], aes(femaleness_2_new_following, ymin=follow_ols_low, ymax=follow_ols_up),alpha=0.2, fill="green4")+
+
+  #female prediciton and CI
+  geom_line(data=syn_data_B[syn_data_B$gender_female==1,], aes(femaleness_2_new_following, follow_ols_pred), color="orange")+
+  geom_ribbon(data=syn_data_B[syn_data_B$gender_female==1,], aes(femaleness_2_new_following, ymin=follow_ols_low,ymax=follow_ols_up),alpha=0.2, fill="orange")+   
+  
+  #vertical lines at median femaleness
+  geom_vline(xintercept = b_male_median_femaleness,   linetype="dashed", size=0.2, alpha=1, color="green4") +
+  geom_rect(aes(xmin=b_male_q1_femaleness, xmax=b_male_q3_femaleness, ymin=b_fol_ols_min, ymax=b_fol_ols_max), alpha=0.05, fill="green4") +
+  
+  geom_vline(xintercept = b_female_median_femaleness, linetype="dashed", size=0.2, alpha=1, color="orange") +
+  geom_rect(aes(xmin=b_female_q1_femaleness, xmax=b_female_q3_femaleness, ymin=b_fol_ols_min, ymax=b_fol_ols_max), alpha=0.05, fill="orange") +
+  
+  #axes formatting
+  scale_y_continuous(
+                     trans='log10',
+                     limits=c(b_fol_ols_min, b_fol_ols_max), 
+                     expand = c(0.001,0.001), breaks = c(30, 50, 100, 200, 300, 400, 500), 
+                     #labels = dropLeadingZero,
+                     name="Predicted followers") +
+  scale_x_continuous(expand = c(0.001,0.001), 
+                     breaks = pretty(syn_data$femaleness_2_new_following, n = 5), 
+                     labels = dropLeadingZero,
+                     name="Femaleness") +
+  
+  
+  
+  #test annotations
+  #annotate(geom="text", x=0.13,   y=685, label="males", col="black", size=ts, hjust = 0) +
+  #annotate(geom="text", x=0.03,   y=340, label="females", col="black", size=ts, hjust = 0) +
+  
+  annotate(geom = "text", x = 0.65, y = 97,  label = "males prediction",   color = "black", size=ts, angle = -41, hjust = 0) +
+  annotate(geom = "text", x = 0.65, y = 125, label = "females prediction", color = "black", size=ts, angle = -36, hjust = 0.15) +
+  # 
+  annotate(geom="text", x=b_male_median_femaleness-0.005,   y=54, label="male", col="black", size=ts, hjust = 1) +
+  annotate(geom="text", x=b_male_median_femaleness-0.005,   y=46, label="median", col="black", size=ts, hjust = 1) +
+  # 
+  annotate(geom="text", x=b_male_q1_femaleness+(b_male_q3_femaleness-b_male_q1_femaleness)/2,   y=33, label="male IQR", col="black", size=ts, hjust = 0.5) +
+  geom_segment(aes(x=b_male_q1_femaleness, xend=b_male_q3_femaleness, y=29, yend=29), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  geom_segment(aes(xend=b_male_q1_femaleness, x=b_male_q3_femaleness, y=29, yend=29), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  # 
+  # #annotate(geom="text", x=male_q1_femaleness-0.01,   y=20, label="males Q1", col="black", size=ts, hjust = 1) +
+  # #annotate(geom="text", x=male_q3_femaleness-0.01,   y=20, label="males Q3", col="black", size=ts, hjust = 0) +
+  # 
+  annotate(geom="text", x=b_female_median_femaleness-0.005,   y=59, label="female", col="black", size=ts, hjust = 1) +
+  annotate(geom="text", x=b_female_median_femaleness-0.005,   y=51, label="median", col="black", size=ts, hjust = 1) +
+  # 
+  annotate(geom="text", x=b_female_q1_femaleness+(b_female_q3_femaleness-b_female_q1_femaleness)/2,   y=38, label="female IQR", col="black", size=ts, hjust = 0.5) +
+  geom_segment(aes(x=b_female_q1_femaleness, xend=b_female_q3_femaleness, y=34, yend=34), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  geom_segment(aes(xend=b_female_q1_femaleness, x=b_female_q3_femaleness, y=34, yend=34), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  
+  #annotate(geom="text", x=female_q1_femaleness-0.01,   y=0.1, label="females Q1", col="black", size=ts, hjust = 1) +
+  #annotate(geom="text", x=female_q3_femaleness-0.01,   y=0.1, label="females Q3", col="black", size=ts, hjust = 0) +
+  
+  labs(title="Attention")+
+  
+  #theme
+  theme(aspect.ratio=1, 
+            panel.grid.major = element_blank(), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.y = element_blank(),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            axis.text.x = element_text(size = 9, colour = "black"),
+            axis.text.y = element_text(size = 9, colour = "black"),
+            plot.margin = unit(c(0,10,0,0), "points")
+            )
+
+
+
+
+
+m_success_ols_margins_B <- ggplot()+
+  
+  #male prediction and CI
+  geom_line(data=syn_data_B[syn_data_B$gender_female==0,], aes(femaleness_2_new_following, success_ols_pred), color="green4")+
+  geom_ribbon(data=syn_data_B[syn_data_B$gender_female==0,], aes(femaleness_2_new_following, ymin=success_ols_low, ymax=success_ols_up),alpha=0.2, fill="green4")+
+
+  #female prediciton and CI
+  geom_line(data=syn_data_B[syn_data_B$gender_female==1,], aes(femaleness_2_new_following, success_ols_pred), color="orange")+
+  geom_ribbon(data=syn_data_B[syn_data_B$gender_female==1,], aes(femaleness_2_new_following, ymin=success_ols_low,ymax=success_ols_up),alpha=0.2, fill="orange")+   
+  
+  #vertical lines at median femaleness
+  geom_vline(xintercept = b_male_median_femaleness,   linetype="dashed", size=0.2, alpha=1, color="green4") +
+  geom_rect(aes(xmin=b_male_q1_femaleness, xmax=b_male_q3_femaleness, ymin=b_succ_ols_min, ymax=b_succ_ols_max), alpha=0.05, fill="green4") +
+  
+  geom_vline(xintercept = b_female_median_femaleness, linetype="dashed", size=0.2, alpha=1, color="orange") +
+  geom_rect(aes(xmin=b_female_q1_femaleness, xmax=b_female_q3_femaleness, ymin=b_succ_ols_min, ymax=b_succ_ols_max), alpha=0.05, fill="orange") +
+  
+  #axes formatting
+  scale_y_continuous(
+                     trans='log10',
+                     limits=c(b_succ_ols_min, b_succ_ols_max), 
+                     expand = c(0.001,0.001), breaks = c(30, 50, 100, 200, 300, 400, 500, 700), 
+                     name="Predicted success") +
+  scale_x_continuous(expand = c(0.001,0.001), 
+                     breaks = pretty(syn_data$femaleness_2_new_following, n = 5), 
+                     labels = dropLeadingZero,
+                     name="Femaleness") +
+  
+  
+  
+  #test annotations
+  #annotate(geom="text", x=0.13,   y=685, label="males", col="black", size=ts, hjust = 0) +
+  #annotate(geom="text", x=0.03,   y=340, label="females", col="black", size=ts, hjust = 0) +
+  
+  #annotate(geom = "text", x = 0.06, y = 720, label = "males prediction", color = "black", size=ts, angle = -44, hjust = 0) +
+  #annotate(geom = "text", x = 0.03, y = 410, label = "females prediction", color = "black", size=ts, angle = -25, hjust = 0) +
+  # 
+  #annotate(geom="text", x=male_median_femaleness-0.01,   y=112, label="male", col="black", size=ts, hjust = 1) +
+  #annotate(geom="text", x=male_median_femaleness-0.01,   y=103, label="median", col="black", size=ts, hjust = 1) +
+  # 
+  #annotate(geom="text", x=male_q1_femaleness+(male_q3_femaleness-male_q1_femaleness)/2,   y=85, label="male IQR", col="black", size=ts, hjust = 0.5) +
+  #geom_segment(aes(x=male_q1_femaleness, xend=male_q3_femaleness, y=80, yend=80), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  #geom_segment(aes(xend=male_q1_femaleness, x=male_q3_femaleness, y=80, yend=80), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  # 
+  # #annotate(geom="text", x=male_q1_femaleness-0.01,   y=20, label="males Q1", col="black", size=ts, hjust = 1) +
+  # #annotate(geom="text", x=male_q3_femaleness-0.01,   y=20, label="males Q3", col="black", size=ts, hjust = 0) +
+  # 
+  #annotate(geom="text", x=female_median_femaleness-0.01,   y=122, label="female", col="black", size=ts, hjust = 0) +
+  #annotate(geom="text", x=female_median_femaleness-0.01,   y=112, label="median", col="black", size=ts, hjust = 0) +
+  # 
+  #annotate(geom="text", x=female_q1_femaleness+(female_q3_femaleness-female_q1_femaleness)/2,   y=95, label="female IQR", col="black", size=ts, hjust = 0.5) +
+  #geom_segment(aes(x=female_q1_femaleness, xend=female_q3_femaleness, y=90, yend=90), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  #geom_segment(aes(xend=female_q1_femaleness, x=female_q3_femaleness, y=90, yend=90), size=0.2, arrow = arrow(length = unit(1, "mm"))) +
+  
+  #annotate(geom="text", x=female_q1_femaleness-0.01,   y=0.1, label="females Q1", col="black", size=ts, hjust = 1) +
+  #annotate(geom="text", x=female_q3_femaleness-0.01,   y=0.1, label="females Q3", col="black", size=ts, hjust = 0) +
+  
+  labs(title="Success")+
+  
+  #theme
+  theme(aspect.ratio=1, 
+            panel.grid.major = element_blank(), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.y = element_blank(),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            axis.text.x = element_text(size = 9, colour = "black"),
+            axis.text.y = element_text(size = 9, colour = "black"),
+            plot.margin = unit(c(0,10,0,0), "points")
+            )
+
+
+
+
+
+
+
+
+m_survival_glm_margins_B <- ggplot()+
+  
+  #male prediction and CI
+  geom_line(data=syn_data_B[syn_data_B$gender_female==0,], aes(femaleness_2_new_following, glm_pred), color="green4")+
+  geom_ribbon(data=syn_data_B[syn_data_B$gender_female==0,], aes(femaleness_2_new_following, ymin=glm_low, ymax=glm_up),alpha=0.2, fill="green4")+
+
+  #female prediciton and CI  
+  geom_line(data=syn_data_B[syn_data_B$gender_female==1,], aes(femaleness_2_new_following, glm_pred), color="orange")+
+  geom_ribbon(data=syn_data_B[syn_data_B$gender_female==1,], aes(femaleness_2_new_following, ymin=glm_low,ymax=glm_up),alpha=0.2, fill="orange")+   
+  
+ #vertical lines at median femaleness
+ geom_vline(xintercept = b_male_median_femaleness,   linetype="dashed", size=0.2, alpha=1, color="green4") +
+ geom_rect(aes(xmin=b_male_q1_femaleness, xmax=b_male_q3_femaleness, ymin=b_surv_ymin, ymax=b_surv_ymax), alpha=0.05, fill="green4") +
+ #  
+ geom_vline(xintercept = b_female_median_femaleness, linetype="dashed", size=0.2, alpha=1, color="orange") +
+ geom_rect(aes(xmin=b_female_q1_femaleness, xmax=b_female_q3_femaleness, ymin=b_surv_ymin, ymax=b_surv_ymax), alpha=0.05, fill="orange") +
+ #  
+ #  #axes formatting
+ scale_y_continuous(
+                    limits=c(b_surv_ymin, b_surv_ymax), 
+                    expand = c(0.001,0.001), 
+                    breaks = c(0.2, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65 ),
+                    labels = dropLeadingZero,
+                    name="Predicted prob. of survival") +
+  scale_x_continuous(expand = c(0.001,0.001), 
+                     breaks = pretty(syn_data$femaleness_2_new_following, n = 5), 
+                     labels = dropLeadingZero,
+                     name="Femaleness") +
+ #  
+ #  #annotate(geom="text", x=0.27,   y=0.98, label="males", col="black", size=3.3, hjust = 0) +
+ #  #annotate(geom="text", x=0.57,   y=0.83, label="females", col="black", size=3.3, hjust = 0) +
+  
+  labs(title="Survival")+
+  
+  #theme
+  theme(aspect.ratio=1, 
+            panel.grid.major = element_blank(), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.y = element_blank(),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            axis.text.x = element_text(size = 9, colour = "black"),
+            axis.text.y = element_text(size = 9, colour = "black"),
+            plot.margin = unit(c(0,10,0,0), "points")
+            )
+
+
+
+
+
+
+
+#grid.arrange(m_success_ols_margins, um_success_ols_margins, m_survival_glm_margins,  um_survival_glm_margins, nrow = 2, ncol=2)
+
+p2 <- cowplot::plot_grid(m_follow_ols_margins_B, m_success_ols_margins_B, m_survival_glm_margins_B,  nrow = 1, ncol=3, align = "vh", scale=1)
+title <- ggdraw() + draw_label("Behance", fontface='bold')
+cowplot::plot_grid(title, p2, ncol=1, rel_heights=c(0.1, 1)) 
+ggsave("Behance_3margins.pdf", p2, width = 8, height = 3)
+#print(p2)
+```
+
+
+
+```{r, fig.width = 8, fig.height = 6}
+p1 <- cowplot::plot_grid(
+  m_follow_ols_margins+labs(title="A: attention") + theme(plot.title = element_text(size = 14, face = "bold", colour = "black")),
+  m_success_ols_margins+labs(title="B: success")+ theme(plot.title = element_text(size = 14, face = "bold", colour = "black")), 
+  m_survival_glm_margins+labs(title="C: survival")+ theme(plot.title = element_text(size = 14, face = "bold", colour = "black")), 
+  nrow = 1, ncol=3, align = "vh", scale=1
+  )
+title1 <- ggdraw() + draw_label("GitHub", fontface='bold')
+#plot_grid(title1, p1, ncol=1, rel_heights=c(0.1, 1)) 
+
+p2 <- cowplot::plot_grid(
+  m_follow_ols_margins_B+labs(title="D: attention") + theme(plot.title = element_text(size = 14, face = "bold", colour = "black")), 
+  m_success_ols_margins_B+labs(title="E: success") + theme(plot.title = element_text(size = 14, face = "bold", colour = "black")), 
+  m_survival_glm_margins_B+labs(title="F: survival") + theme(plot.title = element_text(size = 14, face = "bold", colour = "black")),  
+  nrow = 1, ncol=3, align = "vh", scale=1
+  )
+title2 <- ggdraw() + draw_label("Behance", fontface='bold')
+combined_margins <- cowplot::plot_grid(title1, p1, NULL, title2, p2, ncol=1, rel_heights=c(0.1, 1, 0.07, 0.1, 1)) 
+
+ggsave("Combined_3margins.pdf", combined_margins, width = 8, height = 6)
+
+combined_margins
+```
+
+###Point estimate figure
+
+```{r}
+G_follow_m0 <- data.frame(cbind(summary(m0_follow_ols)$coefficients, confint(m0_follow_ols)))
+G_follow_m1 <- data.frame(cbind(summary(m_follow_ols)$coefficients, confint(m_follow_ols)))
+G_success_m0 <- data.frame(cbind(summary(m0_success_ols)$coefficients, confint(m0_success_ols)))
+G_success_m1 <- data.frame(cbind(summary(m_success_ols)$coefficients, confint(m_success_ols)))
+G_survival_m0 <- data.frame(cbind(summary(m0_survival_logit)$coefficients, confint(m0_survival_logit)))
+G_survival_m1 <- data.frame(cbind(summary(m_survival_logit)$coefficients, confint(m_survival_logit)))
+
+
+B_follow_m0 <- data.frame(cbind(summary(m0_follow_ols_B)$coefficients, confint(m0_follow_ols_B)))
+B_follow_m1 <- data.frame(cbind(summary(m_follow_ols_B)$coefficients, confint(m_follow_ols_B)))
+B_success_m0 <- data.frame(cbind(summary(m0_success_ols_B)$coefficients, confint(m0_success_ols_B)))
+B_success_m1 <- data.frame(cbind(summary(m_success_ols_B)$coefficients, confint(m_success_ols_B)))
+B_survival_m0 <- data.frame(cbind(summary(m0_survival_logit_B)$coefficients, confint(m0_survival_logit_B)))
+B_survival_m1 <- data.frame(cbind(summary(m_survival_logit_B)$coefficients, confint(m_survival_logit_B)))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, fig.width = 9, fig.height = 6}
+
+#-------------scale_x_continuous(expand = c(0,0), labels = dropLeadingZero)-----------------------------
+scaleFUN <- function(x) sprintf("%.2f", x)
+
+dropLeadingZero <- function(l){
+  str_replace(scaleFUN(l), '0[.]', '.') #[.] avoids using "." as regex wildcard
+}
+#-------------------------------------------------------------------------------------------------------
+
+
+lo_color = "#69629a"
+
+
+
+nonsig_col <- "gray60"
+sig_col <- "black"
+
+m1_color="steelblue4"
+m2_color="skyblue2"
+
+s <- 3.1
+ps <- 3
+l <- 0.4
+sh=73 #ASCII code for maker
+  
+G_follow_min_y <- min(G_follow_m0$X2.5[2], G_follow_m1$X2.5[2], G_follow_m1$X2.5[3], G_follow_m1$X2.5[7])
+G_follow_max_y <- max(G_follow_m0$X97.5[2], G_follow_m1$X97.5[2], G_follow_m1$X97.5[3], G_follow_m1$X97.5[7])
+
+pe_G_follow <- ggplot()+
+  
+  geom_vline(xintercept = 0, linetype="dashed", alpha=0.7, color="black", size=0.2) +
+  
+  geom_hline(yintercept = 3.5, alpha=1, color="black", size=0.2) +
+  
+  geom_point(aes(y=as.factor(4), x=G_follow_m0$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m1_color, color=m1_color)+
+  geom_errorbar(aes(y=as.factor(4), xmin=G_follow_m0$X2.5[2], xmax=G_follow_m0$X97.5[2]),width=0, linewidth=l, color=m1_color)+
+  #annotate(geom = "text",x =as.factor(4) ,y = G_follow_m0$Estimate[2],label = "0",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(3), x=G_follow_m1$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(3), xmin=G_follow_m1$X2.5[2], xmax=G_follow_m1$X97.5[2]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(3) ,y = G_follow_m1$Estimate[2],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(2), x=G_follow_m1$Estimate[3]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(2), xmin=G_follow_m1$X2.5[3], xmax=G_follow_m1$X97.5[3]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(2) ,y = G_follow_m1$Estimate[3],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(1), x=G_follow_m1$Estimate[7]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(1), xmin=G_follow_m1$X2.5[7], xmax=G_follow_m1$X97.5[7]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(1) ,y = G_follow_m1$Estimate[7],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+
+   labs(title="Attention")+
+  
+  annotate("segment", y=3.5, x=-1.67, yend=3.5, xend=.45,
+               col="black", size=0.2) +
+  
+  annotate("text", x = -1.67, y = 4, label = "Model 1", color=m1_color, hjust=0, size=9/.pt) +
+  
+  annotate("text", x = -1.67, y = 3, label = "Model 2", color=m2_color, hjust=0, size=9/.pt) +
+    
+  #axes formatting
+  scale_x_continuous(
+                     #trans='log10',
+                     #limits=c(G_follow_min_y-abs(.4*G_follow_min_y), G_follow_max_y), 
+                     labels = dropLeadingZero,
+                     #expand=expansion(add=c(.005,.005)),
+                     #breaks = c(-.08, -.06, -.04, -.02, 0, .02), 
+                     name="") +
+  scale_y_discrete(
+                     expand=expansion(add=c(.5,.5)), 
+                     #breaks = pretty(syn_data_mixing$blau2, n = 5), 
+                     name="",
+                     labels=c(expression("Female" %*% "Femaleness"), "Femaleness", "Female", "Female")) +
+  coord_cartesian(
+             xlim = c(-.55, .42),
+             clip="off") +
+  
+  #coord_flip( ) +
+  
+  theme(#aspect.ratio=1, 
+            title =element_text(size=11),
+            panel.grid.major.y = element_line(size=0.2), 
+            panel.grid.major.x = element_line(size=0.2), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            #legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.x = element_blank(),
+            axis.title.x = element_text(size = 11, colour = "black"),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            #axis.text.y = element_blank()
+            #axis.text.x = element_blank()
+            #plot.margin = unit(c(m_top,m_right,m_bottom,m_left), "mm")
+            )
+
+
+
+
+G_success_min_y <- min(G_success_m0$X2.5[2], G_success_m1$X2.5[2], G_success_m1$X2.5[3], G_success_m1$X2.5[7])
+G_success_max_y <- max(G_success_m0$X97.5[2], G_success_m1$X97.5[2], G_success_m1$X97.5[3], G_success_m1$X97.5[7])
+
+pe_G_success <- ggplot()+
+  
+  geom_vline(xintercept = 0, linetype="dashed", alpha=0.7, color="black", size=0.2) +
+  
+  geom_hline(yintercept = 3.5, alpha=1, color="black", size=0.2) +
+  
+  geom_point(aes(y=as.factor(4), x=G_success_m0$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m1_color, color=m1_color)+
+  geom_errorbar(aes(y=as.factor(4), xmin=G_success_m0$X2.5[2], xmax=G_success_m0$X97.5[2]),width=0, linewidth=l, color=m1_color)+
+  #annotate(geom = "text",x =as.factor(4) ,y = G_success_m0$Estimate[2],label = "0",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(3), x=G_success_m1$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(3), xmin=G_success_m1$X2.5[2], xmax=G_success_m1$X97.5[2]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(3) ,y = G_success_m1$Estimate[2],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(2), x=G_success_m1$Estimate[3]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(2), xmin=G_success_m1$X2.5[3], xmax=G_success_m1$X97.5[3]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(2) ,y = G_success_m1$Estimate[3],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(1), x=G_success_m1$Estimate[7]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(1), xmin=G_success_m1$X2.5[7], xmax=G_success_m1$X97.5[7]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(1) ,y = G_success_m1$Estimate[7],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+
+  labs(title="Success")+
+  
+  
+    
+  #axes formatting
+  scale_x_continuous(
+                     #trans='log10',
+                     #limits=c(G_follow_min_y-abs(.4*G_follow_min_y), G_follow_max_y), 
+                     labels = dropLeadingZero,
+                     expand=expansion(add=c(.005,.005)),
+                     #breaks = c(-.08, -.06, -.04, -.02, 0, .02), 
+                     name="") +
+  scale_y_discrete(
+                     expand=expansion(add=c(.5,.5)), 
+                     #breaks = pretty(syn_data_mixing$blau2, n = 5), 
+                     name="",
+                     labels=c("", "", "", "")
+                     ) +
+  
+  
+  theme(#aspect.ratio=1, 
+            title =element_text(size=11),
+            panel.grid.major.y = element_line(size=0.2), 
+            panel.grid.major.x = element_line(size=0.2), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            #legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.x = element_blank(),
+            axis.title.x = element_text(size = 11, colour = "black"),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            #axis.text.y = element_blank()
+            #axis.text.x = element_blank()
+            #plot.margin = unit(c(m_top,m_right,m_bottom,m_left), "mm")
+            )
+
+
+G_survival_min_y <- min(G_survival_m0$X2.5[2], G_survival_m1$X2.5[2], G_survival_m1$X2.5[3], G_survival_m1$X2.5[7])
+G_survival_max_y <- max(G_survival_m0$X97.5[2], G_survival_m1$X97.5[2], G_survival_m1$X97.5[3], G_survival_m1$X97.5[7])
+
+pe_G_survival <- ggplot()+
+  
+  geom_vline(xintercept = 0, linetype="dashed", alpha=0.7, color="black", size=0.2) +
+  
+  geom_hline(yintercept = 3.5, alpha=1, color="black", size=0.2) +
+  
+  geom_point(aes(y=as.factor(4), x=G_survival_m0$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m1_color, color=m1_color)+
+  geom_errorbar(aes(y=as.factor(4), xmin=G_survival_m0$X2.5[2], xmax=G_survival_m0$X97.5[2]),width=0, linewidth=l, color=m1_color)+
+  #annotate(geom = "text",x =as.factor(4) ,y = G_survival_m0$Estimate[2],label = "0",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(3), x=G_survival_m1$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(3), xmin=G_survival_m1$X2.5[2], xmax=G_survival_m1$X97.5[2]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(3) ,y = G_survival_m1$Estimate[2],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(2), x=G_survival_m1$Estimate[3]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(2), xmin=G_survival_m1$X2.5[3], xmax=G_survival_m1$X97.5[3]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(2) ,y = G_survival_m1$Estimate[3],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(1), x=G_survival_m1$Estimate[7]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(1), xmin=G_survival_m1$X2.5[7], xmax=G_survival_m1$X97.5[7]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(1) ,y = G_survival_m1$Estimate[7],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+
+  labs(title="Survival")+
+  
+  
+    
+  #axes formatting
+  scale_x_continuous(
+                     #trans='log10',
+                     #limits=c(G_follow_min_y-abs(.4*G_follow_min_y), G_follow_max_y), 
+                     labels = dropLeadingZero,
+                     expand=expansion(add=c(.005,.005)),
+                     #breaks = c(-.08, -.06, -.04, -.02, 0, .02), 
+                     name="") +
+  scale_y_discrete(
+                     expand=expansion(add=c(.5,.5)), 
+                     #breaks = pretty(syn_data_mixing$blau2, n = 5), 
+                     name="",
+                     labels=c("", "", "", "")
+                     ) +
+  
+  
+  theme(#aspect.ratio=1, 
+            title =element_text(size=11),
+            panel.grid.major.y = element_line(size=0.2), 
+            panel.grid.major.x = element_line(size=0.2), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            #legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.x = element_blank(),
+            axis.title.x = element_text(size = 11, colour = "black"),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            #axis.text.y = element_blank()
+            #axis.text.x = element_blank()
+            #plot.margin = unit(c(m_top,m_right,m_bottom,m_left), "mm")
+            )
+
+
+
+B_follow_min_y <- min(B_follow_m0$X2.5[2], B_follow_m1$X2.5[2], B_follow_m1$X2.5[3], B_follow_m1$X2.5[7])
+B_follow_max_y <- max(B_follow_m0$X97.5[2], B_follow_m1$X97.5[2], B_follow_m1$X97.5[3], B_follow_m1$X97.5[7])
+
+pe_B_follow <- ggplot()+
+  
+  geom_vline(xintercept = 0, linetype="dashed", alpha=0.7, color="black", size=0.2) +
+  
+  geom_hline(yintercept = 3.5, alpha=1, color="black", size=0.2) +
+  
+  geom_point(aes(y=as.factor(4), x=B_follow_m0$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m1_color, color=m1_color)+
+  geom_errorbar(aes(y=as.factor(4), xmin=B_follow_m0$X2.5[2], xmax=B_follow_m0$X97.5[2]),width=0, linewidth=l, color=m1_color)+
+  #annotate(geom = "text",x =as.factor(4) ,y = B_follow_m0$Estimate[2],label = "0",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(3), x=B_follow_m1$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(3), xmin=B_follow_m1$X2.5[2], xmax=B_follow_m1$X97.5[2]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(3) ,y = B_follow_m1$Estimate[2],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(2), x=B_follow_m1$Estimate[3]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(2), xmin=B_follow_m1$X2.5[3], xmax=B_follow_m1$X97.5[3]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(2) ,y = B_follow_m1$Estimate[3],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(1), x=B_follow_m1$Estimate[7]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(1), xmin=B_follow_m1$X2.5[7], xmax=B_follow_m1$X97.5[7]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(1) ,y = B_follow_m1$Estimate[7],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+
+  labs(title="Attention")+
+  
+    annotate("segment", y=3.5, x=-3.505, yend=3.5, xend=.5,
+               col="black", size=0.2) +
+  
+  
+    annotate("text", x = -3.505, y = 4, label = "Model 1", color=m1_color, hjust=0, size=9/.pt) +
+  
+  annotate("text", x = -3.505, y = 3, label = "Model 2", color=m2_color, hjust=0, size=9/.pt) +
+  
+  
+    
+  #axes formatting
+  scale_x_continuous(
+                     #trans='log10',
+                     #limits=c(B_follow_min_y-abs(.4*B_follow_min_y), B_follow_max_y), 
+                     labels = dropLeadingZero,
+                     expand=expansion(add=c(.009,.009)),
+                     breaks = c(-1.2, -.8, -.4, 0, .4), 
+                     name="") +
+  scale_y_discrete(
+                     expand=expansion(add=c(.5,.5)), 
+                     #breaks = pretty(syn_data_mixing$blau2, n = 5), 
+                     name="",
+                     labels=c(expression("Female" %*% "Femaleness"), "Femaleness", "Female", "Female")) +
+  
+    coord_cartesian(
+             xlim = c(-1.5, .5),
+             clip="off") +
+
+  
+  theme(#aspect.ratio=1, 
+            title =element_text(size=11),
+            panel.grid.major.y = element_line(size=0.2), 
+            panel.grid.major.x = element_line(size=0.2), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            #legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.x = element_blank(),
+            axis.title.x = element_text(size = 11, colour = "black"),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            #axis.text.y = element_blank()
+            #axis.text.x = element_blank()
+            #plot.margin = unit(c(m_top,m_right,m_bottom,m_left), "mm")
+            )
+
+
+
+
+B_success_min_y <- min(B_success_m0$X2.5[2], B_success_m1$X2.5[2], B_success_m1$X2.5[3], B_success_m1$X2.5[7])
+B_success_max_y <- max(B_success_m0$X97.5[2], B_success_m1$X97.5[2], B_success_m1$X97.5[3], B_success_m1$X97.5[7])
+
+pe_B_success <- ggplot()+
+  
+  geom_vline(xintercept = 0, linetype="dashed", alpha=0.7, color="black", size=0.2) +
+  
+  geom_hline(yintercept = 3.5, alpha=1, color="black", size=0.2) +
+  
+  geom_point(aes(y=as.factor(4), x=B_success_m0$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m1_color, color=m1_color)+
+  geom_errorbar(aes(y=as.factor(4), xmin=B_success_m0$X2.5[2], xmax=B_success_m0$X97.5[2]),width=0, linewidth=l, color=m1_color)+
+  #annotate(geom = "text",x =as.factor(4) ,y = B_success_m0$Estimate[2],label = "0",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(3), x=B_success_m1$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(3), xmin=B_success_m1$X2.5[2], xmax=B_success_m1$X97.5[2]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(3) ,y = B_success_m1$Estimate[2],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(2), x=B_success_m1$Estimate[3]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(2), xmin=B_success_m1$X2.5[3], xmax=B_success_m1$X97.5[3]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(2) ,y = B_success_m1$Estimate[3],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(1), x=B_success_m1$Estimate[7]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(1), xmin=B_success_m1$X2.5[7], xmax=B_success_m1$X97.5[7]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(1) ,y = B_success_m1$Estimate[7],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+
+  labs(title="Success")+
+  
+  
+    
+  #axes formatting
+  scale_x_continuous(
+                     #trans='log10',
+                     #limits=c(B_follow_min_y-abs(.4*B_follow_min_y), B_follow_max_y), 
+                     labels = dropLeadingZero,
+                     expand=expansion(add=c(0,.15)),
+                     #breaks = c(-.08, -.06, -.04, -.02, 0, .02), 
+                     name="") +
+  scale_y_discrete(
+                     expand=expansion(add=c(.5,.5)), 
+                     #breaks = pretty(syn_data_mixing$blau2, n = 5), 
+                     name="",
+                     labels=c("", "", "", "")
+                     ) +
+  
+  
+  theme(#aspect.ratio=1, 
+            title =element_text(size=11),
+            panel.grid.major.y = element_line(size=0.2), 
+            panel.grid.major.x = element_line(size=0.2), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            #legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.x = element_blank(),
+            axis.title.x = element_text(size = 11, colour = "black"),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            #axis.text.y = element_blank()
+            #axis.text.x = element_blank()
+            #plot.margin = unit(c(m_top,m_right,m_bottom,m_left), "mm")
+            )
+
+
+B_survival_min_y <- min(B_survival_m0$X2.5[2], B_survival_m1$X2.5[2], B_survival_m1$X2.5[3], B_survival_m1$X2.5[7])
+B_survival_max_y <- max(B_survival_m0$X97.5[2], B_survival_m1$X97.5[2], B_survival_m1$X97.5[3], B_survival_m1$X97.5[7])
+
+pe_B_survival <- ggplot()+
+  
+  geom_vline(xintercept = 0, linetype="dashed", alpha=0.7, color="black", size=0.2) +
+  
+  geom_hline(yintercept = 3.5, alpha=1, color="black", size=0.2) +
+  
+  geom_point(aes(y=as.factor(4), x=B_survival_m0$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m1_color, color=m1_color)+
+  geom_errorbar(aes(y=as.factor(4), xmin=B_survival_m0$X2.5[2], xmax=B_survival_m0$X97.5[2]),width=0, linewidth=l, color=m1_color)+
+  #annotate(geom = "text",x =as.factor(4) ,y = B_survival_m0$Estimate[2],label = "0",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(3), x=B_survival_m1$Estimate[2]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(3), xmin=B_survival_m1$X2.5[2], xmax=B_survival_m1$X97.5[2]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(3) ,y = B_survival_m1$Estimate[2],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(2), x=B_survival_m1$Estimate[3]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(2), xmin=B_survival_m1$X2.5[3], xmax=B_survival_m1$X97.5[3]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(2) ,y = B_survival_m1$Estimate[3],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+  
+  geom_point(aes(y=as.factor(1), x=B_survival_m1$Estimate[7]),size=ps,stroke = 1, shape = sh, fill =m2_color, color=m2_color)+
+  geom_errorbar(aes(y=as.factor(1), xmin=B_survival_m1$X2.5[7], xmax=B_survival_m1$X97.5[7]),width=0, linewidth=l, color=m2_color)+
+  #annotate(geom = "text",x =as.factor(1) ,y = B_survival_m1$Estimate[7],label = "1",col = "white",size = s,hjust = 0.5,alpha = 1) +
+
+   labs(title="Survival")+
+  
+  
+    
+  #axes formatting
+  scale_x_continuous(
+                     #trans='log10',
+                     #limits=c(B_follow_min_y-abs(.4*B_follow_min_y), B_follow_max_y), 
+                     labels = dropLeadingZero,
+                     expand=expansion(add=c(.005,.005)),
+                     #breaks = c(-.08, -.06, -.04, -.02, 0, .02), 
+                     name="") +
+  scale_y_discrete(
+                     expand=expansion(add=c(.5,.5)), 
+                     #breaks = pretty(syn_data_mixing$blau2, n = 5), 
+                     name="",
+                     labels=c("", "", "", "")
+                     ) +
+  
+  
+  theme(#aspect.ratio=1, 
+            title =element_text(size=11),
+            panel.grid.major.y = element_line(size=0.2), 
+            panel.grid.major.x = element_line(size=0.2), 
+            panel.grid.minor = element_blank(), 
+            panel.background = element_blank(), 
+            panel.border = element_rect(colour = "black", 
+                                        fill=NA, 
+                                        size=0.2),
+            #legend.position = c(0.2, 0.3),
+            plot.title = element_text(size = tit_s, face = "bold", colour = "black"),
+            #axis.ticks.x = element_blank(),
+            axis.title.x = element_text(size = 11, colour = "black"),
+            axis.title.y = element_text(size = 11, colour = "black"),
+            #axis.text.y = element_blank()
+            #axis.text.x = element_blank()
+            #plot.margin = unit(c(m_top,m_right,m_bottom,m_left), "mm")
+            )
+
+
+
+
+  
+```
+
+
+
+
+
+
+
+```{r, fig.width = 6, fig.height = 4}
+title1 <- cowplot::plot_grid(NULL, ggdraw() + draw_label("GitHub", fontface='bold', size = 11), NULL, rel_widths  = c(.8, 3, .1))
+title2 <- cowplot::plot_grid(NULL, ggdraw() + draw_label("Behance", fontface='bold', size = 11), NULL, rel_widths  = c(.8, 3, .1))
+
+
+right_margin=0
+
+top_row <- cowplot::plot_grid(pe_G_follow +
+                                labs(title="A: attention")+
+                                theme(plot.margin = unit(c(0, right_margin, 0, 0), "pt")),
+                              pe_G_success+ 
+                                labs(title="B: success")+
+                                theme(plot.margin = unit(c(0, right_margin, 0, 0), "pt")), 
+                              pe_G_survival+ 
+                                labs(title="C: survival")+
+                                theme(plot.margin = unit(c(0, right_margin, 0, 0), "pt")),  
+                              NULL,
+                   align="h", 
+                   ncol=4, 
+                   nrow=1, 
+                   rel_widths  = c(1.8, 1, 1, .1),
+                   rel_heights = c(1, 1, 1,1)
+                   )
+
+bottom_row <- cowplot::plot_grid(pe_B_follow + 
+                                   labs(title="D: attention")+
+                                   theme(plot.margin = unit(c(0, right_margin, 0, 0), "pt")),
+                                 pe_B_success + 
+                                   labs(title="E: success")+
+                                   theme(plot.margin = unit(c(0, right_margin, 0, 0), "pt")),
+                                 pe_B_survival + 
+                                   labs(title="F: survival")+
+                                   theme(plot.margin = unit(c(0, right_margin, 0, 0), "pt")),  
+                                 NULL,
+                   align="h", 
+                   ncol=4, 
+                   nrow=1, 
+                   rel_widths  = c(1.8, 1, 1, .1),
+                   rel_heights = c(1, 1, 1,1)
+                   )
+
+pe_6plot <- cowplot::plot_grid(title1, top_row, NULL, title2, bottom_row, 
+                               ncol=1, 
+                               nrow=5,
+                               rel_heights = c(.15, 1,.025, .15, 1)
+)
+
+pe_6plot 
+
+ggsave("Point_estimates.pdf", pe_6plot, width = 6, height = 4)
+                               
+```
+
+
+```{r}
+cor(github$success, github$followers)
+summary(lm(github$success ~ github$followers))
+
+cor(github$still_active, github$followers)
+cor(github$still_active[github$gender_female==1], github$followers[github$gender_female==1])
+cor(github$still_active[github$gender_female==0], github$followers[github$gender_female==0])
+
+summary(lm(github$still_active ~ github$followers + github$gender_female + github$followers:github$gender_female))
+summary(lm(github$still_active[github$gender_female==1] ~ github$followers[github$gender_female==1]))
+summary(lm(github$still_active[github$gender_female==0] ~ github$followers[github$gender_female==0]))
+```
+
+
+
